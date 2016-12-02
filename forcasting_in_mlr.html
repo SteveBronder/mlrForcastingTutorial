@@ -397,7 +397,7 @@ gbmMod = train(regrGbm, regr.task.lag)</code></pre>
 </div>
 <div id="classification-forecasting-example" class="section level2">
 <h2>Classification Forecasting Example</h2>
-<p>For developing trading strategies, we normally have a set of</p>
+<p>For developing trading strategies, we normally have a discrete set of choices such as to buy, sell, or hold onto a stock. Using forecasting in mlr we can now train classification models that forecast these choices.</p>
 <pre class="r"><code>library(xts)
 library(lubridate)
 set.seed(1234)

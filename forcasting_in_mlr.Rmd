@@ -198,7 +198,8 @@ forecast(gbmMod, h = 10)
 
 ## Classification Forecasting Example
 
-For developing trading strategies, we normally have a set of 
+For developing trading strategies, we normally have a discrete set of choices such as to buy, sell, or hold onto a stock. Using forecasting in mlr we can now train classification models that forecast these choices.
+
 ```{r binaryforecast, cache = TRUE}
 library(xts)
 library(lubridate)
