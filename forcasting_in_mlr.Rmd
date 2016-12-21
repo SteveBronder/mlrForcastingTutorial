@@ -220,7 +220,7 @@ forecast(classif.train, h = 10)
 
 ## Lambert W Transforms
 
-A new preprocessing wrapper `makePreprocWrapperLambert()` has been added. This function uses the `LambertW` package’s `Guassianize()` function to help remove skewness and kurtosis from the data.
+A new preprocessing wrapper `makePreprocWrapperLambert()` has been added. This function uses the `LambertW` package’s `Gaussianize()` function to help remove skewness and kurtosis from the data.
 
 ```{r lambertclassif, cache = TRUE}
 lrn = makePreprocWrapperLambert("classif.lda", type = "h")
@@ -228,7 +228,7 @@ print(lrn)
 train(lrn, iris.task)
 ```
 
-The largest benefit of this preprocessing scheme is that it, as the function says, "Guassianizes" the data in a similar manner to Box-Cox transforms. Many machine learning and forecasting models lean on the assumption that our data is normally distributed and this preprocessing feature allows us to coalesce the data to fit that assumption.
+The largest benefit of this preprocessing scheme is that it, as the function says, "Gaussianizes" the data in a similar manner to Box-Cox transforms. Many machine learning and forecasting models lean on the assumption that our data is normally distributed and this preprocessing feature allows us to coalesce the data to fit that assumption.
 
 ## Ensembles of Forecasts
 
