@@ -30,13 +30,15 @@ dat = arima.sim(model = list(ar = c(.5,.2), ma = c(.4), order = c(2,0,1)), n = 2
 times = (as.POSIXlt("1992-01-14")) + lubridate::days(1:200)
 dat = xts::xts(dat,order.by = times)
 colnames(dat) = c("arma_test")
+dat.train = dat[1:190,]
+dat.test = dat[191:200,]
 ```
 
 To specify a forecast task we must pass an `xts` object containing the data, a `target`, and the `frequency` of the data. The frequency of the data can be thought of as the seasonality. For example, a frequency of seven on daily data would be a weekly seasonality. A frequency of fifty-two on weekly data would indicate a yearly seasonality.
 
 ```{r makeTask, cache = TRUE}
 library(mlr)
-fcregr.task = makeForecastRegrTask(id = "test", data = dat, target = "arma_test",
+fcregr.task = makeForecastRegrTask(id = "test", data = dat.train, target = "arma_test",
                                      frequency = 7L)
 fcregr.task
 ```
@@ -52,8 +54,9 @@ One common problem with forecasting is that it is difficult to use additional ex
 data("EuStockMarkets")
 EuStockMarkets.time = lubridate::date_decimal(as.numeric(time(EuStockMarkets)))
 EuStockMarkets  = xts::xts(as.data.frame(EuStockMarkets), order.by = EuStockMarkets.time)
-
-mfcregr.task = makeMultiForecastRegrTask(id = "bigvar", data = EuStockMarkets, target = "all", frequency = 7L)
+EuStockMarkets.train = EuStockMarkets[1:1850,]
+EuStockMarets.test = EuStockMarkets[1851:1860,]
+mfcregr.task = makeMultiForecastRegrTask(id = "bigvar", data = EuStockMarkets.train, target = "all", frequency = 7L)
 mfcregr.task
 ```
 
@@ -62,20 +65,43 @@ This task prints the same information as a univariate forecast task.
 If we would like to specify a target variable while still forecasting the rest of the data in an endogenous manner, we change our target to one of the variables.
 
 ```{r EuStockDataSingle, cache = TRUE}
-mfcregr.task = makeMultiForecastRegrTask(id = "bigvar", data = EuStockMarkets, target = "DAX", frequency = 7L)
+mfcregr.task = makeMultiForecastRegrTask(id = "bigvar", data = EuStockMarkets.train, target = "DAX", frequency = 7L)
 mfcregr.task
 ```
 
 ## Making Learners for Forecasting
 
-We create an arima model from the package `forecast` using `makeLearner()` by calling the learner class `fcregr.Arima`. An important parameter is the `h` parameter, which is used to specify that we are forecasting 10 periods ahead.
+Several new models have been included from the `forecast` package and well as `rugarch`:
+
+1. Exponential smoothing state space model with Box-Cox transformation (bats)
+2. Exponential smoothing state space model with Box-Cox transformation, ARMA errors, Trend and Seasonal Fourier components (tbats)
+3. Exponential smoothing state space model (ets)
+4. Neural Network Autoregressive model (nnetar)
+5. Automated Arima (auto.arima)
+6. General Autoregressive Conditional Heteroskedasticity models (GARCH)
+7. BigVar for multivariate time series
+
+These all operate the same as the other models in mlr, with a very important parameter. Models will either have an `h` or `n.ahead` parameter, which is the number of periods you want to forecast into the future. Note that this should be equal to the horizon you set in your growing or fixed window resampling strategy. 
+
+We create a GARCH model from the package `rugarch` using `makeLearner()` by calling the learner class `fcregr.garch`. An important parameter is the `n.ahead` parameter, which is used to specify that we are forecasting 10 periods into the future. We can view all of the possible parameters that can be tuned with `getLearnerParamSet("fcregr.garch")`
 
 ```{r makeArima, cache = TRUE}
-arm = makeLearner("fcregr.Arima", order = c(2L,0L,1L), h = 10L, include.mean = FALSE)
-arm
+getLearnerParamSet("fcregr.garch")
+garch.mod = makeLearner("fcregr.garch",
+                        model = "sGARCH", garchOrder = c(2,1),
+                        n.ahead = 10L, include.mean = FALSE)
+garch.mod
 ```
 
-On a side note, the only forecasting models that support using additional regressors are `Arima` and `auto.arima`. For these models, the additional variables in our tasks data set will be assumed to be the extra regressors. For all other forecasting models only the target will be used and the rest will be ignored. 
+Once we set up our task and model `train()`, `predict()`, and `performance()` can be called to build and evaluate the model.
+
+```{r garchMod, cache = TRUE}
+garch.train = train(garch.mod, fcregr.task)
+garch.pred = predict(garch.train, newdata = dat.test)
+performance(garch.pred, measure = mase, task = fcregr.task)
+```
+
+This standard evaluation method is user friendly and in addition, we can now use `mlr`'s built in resampling and tuning methods to tune a garch model for the data.
 
 ## Resampling
 
@@ -89,7 +115,7 @@ mlr now has two new cross validation resampling strategies, `GrowingCV` and `Fix
 ```{r resampleDescSimp, cache = TRUE}
 resamp.desc = makeResampleDesc("GrowingCV", horizon = 10L,
                                initial.window = .90,
-                               size = nrow(getTaskData(fcregr.task)), skip = .01)
+                               size = nrow(getTaskData(fcregr.task)), skip = 0)
 resamp.desc
 ```
 
@@ -97,57 +123,56 @@ Note that we should not specify stratification, as it does not really make sense
 
 ![The top two graphs correspond to fixed window while the bottom two graphs are for growing window](windowing.png)
 
-## Forecasting Models
+Using the resampling strategy we can do a windowing cross-validation with our previous GARCH model to evaluate the general performance of the created GARCH model.
 
-Several new models have been included from the `forecast` package and well as `rugarch`:
-
-1. Exponential smoothing state space model with Box-Cox transformation (bats)
-2. Exponential smoothing state space model with Box-Cox transformation, ARMA errors, Trend and Seasonal Fourier components (tbats)
-3. Exponential smoothing state space model (ets)
-4. Neural Network Autoregressive model (nnetar)
-5. Automated Arima (auto.arima)
-6. General Autoregressive Conditional Heteroskedasticity models (GARCH)
-7. BigVar for multivariate time series
-
-These all operate the same as the other models in mlr, with a very important parameter. Models will either have an `h` or `n.ahead` parameter, which is the number of periods you want to forecast into the future. Note that this should be equal to the horizon you set in your growing or fixed window resampling strategy.
-
-```{r garchMod, cache = TRUE}
-garchMod = makeLearner("fcregr.garch", model = "sGARCH",
-                       garchOrder = c(1,1), n.ahead = 10,
-                       armaOrder = c(2, 1))
-m = train(garchMod, fcregr.task)
-predict(m,task = fcregr.task)
+```{resampleGarch, cache = TRUE}
+garch.resample = resample(learner = garch.mod, task = fcregr.task,
+                          resampling = resamp.desc, measures = mase)
+garch.resample
 ```
 
 ## Tuning
 
-The forecasting features fully integrate into mlr, allowing us to also make a parameter set to tune over. Here we tune an ARIMA model and with F1-racing used to tune our parameters.
+The forecasting features fully integrate into mlr, allowing us to also make a parameter set to tune over. Here we tune a GARCH model with F1-racing used to tune our parameters. In addition, we can tune the model in parallel using `parallelMap`.
 
-```{r tuneArima, cache = TRUE}
+```{r tuneArima, cache = TRUE, eval = FALSE}
 par_set = makeParamSet(
-  makeIntegerVectorParam(id = "order",
-                         len = 3L,
-                         lower = 0,
-                         upper = 2,
-                         tunable = TRUE),
-  makeLogicalParam(id = "include.mean", default = FALSE, tunable = TRUE)
-  )
+  makeDiscreteParam(id = "model", values = c("sGARCH", "fGARCH")),
+  makeDiscreteParam(id = "submodel", values = c("GARCH", "NGARCH"),
+                    requires = quote(model == "fGARCH")),
+  makeIntegerVectorParam(id = "garchOrder", len = 2L, lower = 1, upper = 3))
 
 #Specify tune by grid estimation
 ctrl = makeTuneControlIrace(maxExperiments = 180L)
 
+library(parallelMap)
+parallelStartSocket(3)
 configureMlr(on.learner.error = "warn")
-res = tuneParams(makeLearner("fcregr.Arima",h=10), task = fcregr.task, resampling = resamp.desc, par.set = par_set, control = ctrl, measures = mase, show.info = FALSE)
+res = tuneParams(garch.mod, task = fcregr.task,
+                 resampling = resamp.desc, par.set = par_set,
+                 control = ctrl, measures = mase)
+parallelStop()
 res
 ```
+
+```{r garchTunesave, eval =FALSE, echo = FALSE}
+save(res, file = "./garch_tune.RData")
+```
+
+```{r garchTuneReal, eval =TRUE, echo = FALSE}
+load("./garch_tune.RData")
+```
+
 
 Once we have tuned the model we get back the hyperparameters of the best model through `setHyperPars()` and then train the model like any other.
 
 ```{r bestArima, cache = TRUE}
-lrn = setHyperPars(makeLearner("fcregr.Arima"), par.vals = res$x)
-m.best = train(lrn, fcregr.task)
-m.best
-predict(m.best, task = fcregr.task)
+garch.hyp  = setHyperPars(makeLearner("fcregr.garch", n.ahead = 10L),
+                          par.vals = res$x)
+garch.best = train(garch.hyp, fcregr.task)
+garch.pred = predict(garch.best, newdata = dat.test)
+performance(garch.pred, measures = mase, task = fcregr.task)
+
 ```
 
 ## Updating Models
@@ -155,27 +180,36 @@ predict(m.best, task = fcregr.task)
 A new function `updateModel()` has been implemented that updates the model given new data. This function is currently only implemented for ets, Arima, auto.arima, bats, tbats, and nnetar.
 
 ```{r updateArima, cache = TRUE}
-fcregr.task = makeForecastRegrTask(id = "test", data = dat[1:190,], target = "arma_test",
-                                     frequency = 7L)
-arm = makeLearner("fcregr.Arima", order = c(2L,0L,1L), h = 10L, include.mean = FALSE)
+fcregr.task = makeForecastRegrTask(id = "test", data = dat.train,
+                                   target = "arma_test", frequency = 7L)
+arm = makeLearner("fcregr.Arima", order = c(2L,0L,1L),
+                  h = 10L, include.mean = FALSE)
 arm
 armMod = train(arm, fcregr.task)
-updateArmMod = updateModel(armMod, fcregr.task, newdata = dat[191:200,])
+updateArmMod = updateModel(armMod, fcregr.task, newdata = dat.test)
 updateArmMod
+
 ```
 
-This works by making a call to `updateLearner.fcregr.Arima()` and updating the model and task data with newdata. `predict()` works as it would on a normal model.
+This works by making a call to `updateLearner.fcregr.Arima()` and updating the model and task data with newdata. `predict()` now forcasts the next 10 periods.
+
+```{r armaUpdatePred, cache = TRUE}
+
+predict(updateArmMod, task = fcregr.task)
+```
 
 ## Pre-processing
 ### Creating Lags and Differences
 
-The function `createLagDiffFeatures()` allows users to create arbitrary lags and differences of their task data.
+The function `createLagDiffFeatures()` allows users to create arbitrary lags and differences that allow for the creation of $AR(p,d)$ style machine learning models to be used with forecasting. This method requires passing a data frame with the row names being POSIXct compatable.
 
 ```{r createlagdiff, cache = TRUE}
-fcregr.task.lag = createLagDiffFeatures(fcregr.task,lag = 2L:4L, difference = 1L, 
-                                          seasonal.lag = 1L:2L)
-tail(fcregr.task.lag$env$data)
-fcregr.task.lag
+dat.train.reg = as.data.frame(dat.train, row.names = index(dat.train))
+regr.task = makeRegrTask(data = dat.train.reg, target = "arma_test")
+regr.task.lag = createLagDiffFeatures(regr.task,lag = 2L:4L, difference = 1L, 
+                                          seasonal.lag = 1L:2L, frequency = 5)
+regr.task.lag
+
 ```
 
 This can be used with any task type as long as the row names of the task data can be converted to `POSIXct` format. 
@@ -183,40 +217,48 @@ This can be used with any task type as long as the row names of the task data ca
 As an example, we will build and train a gradient boosting machine using lagged data.
 
 ```{r gdmLags, cache = TRUE}
-regr.task = makeRegrTask(id = "Lagged ML model", data = as.data.frame(dat), target = "arma_test")
-regr.task.lag = createLagDiffFeatures(regr.task, lag = 1L:10L, difference = 0L)
-
 regrGbm <- makeLearner("regr.gbm", par.vals = list(n.trees = 100))
 gbmMod = train(regrGbm, regr.task.lag)
+
 ```
 
 To forecast with a regression model whose task is manipulated by `createLagDiffFeatures()` use the function `forecast()`.
 
 ```{r forecastgbm, cache = TRUE}
-forecast(gbmMod, h = 10)
+gbm.fore = forecast(gbmMod, h = 10, newdata = dat.test)
+performance(gbm.fore, measures = mase, task = regr.task.lag)
 ```
+
 
 ## Classification Forecasting Example
 
-For developing trading strategies, we normally have a discrete set of choices such as to buy, sell, or hold onto a stock. Using forecasting in mlr we can now train classification models that forecast these choices.
+For developing trading strategies, we normally have a discrete set of choices such as to buy, sell, or hold onto a stock. Using forecasting in mlr we can now train classification models that forecast these choices. He we try to predict whether a 'stock' will go up 5%, down 5%, or neither. Below we simulate data from an ARIMA process, take the percentage change, and descritize the data into either a 'buy', 'sell', or 'hold'.
 
 ```{r binaryforecast, cache = TRUE}
 library(xts)
 library(lubridate)
 set.seed(1234)
-dat  = arima.sim(model = list(ar = c(.8,.1), ma = c(.4), order = c(2,0,1)), n = 300)
+# Generate an ARIMA based data set
+dat = arima.sim(model = list(ar = c(.5,.2,.1), ma = c(.5,.3), order = c(3,0,2)), n = 500)
+dat = dat/lag(dat,-1) - 1 
 jump = data.frame(jump = ifelse(diff(dat) > .5, "Buy",ifelse(diff(dat) < -.5, "Sell","Hold")))
-times = (as.POSIXct("1992-01-14")) + lubridate::days(1:299)
+times = (as.POSIXct("1992-01-14")) + lubridate::days(1:498)
 rownames(jump) = times
+jump.train = jump[1:488,,drop = FALSE]
+jump.test  = jump[489:498,,drop = FALSE]
 
-classif.task = makeClassifTask(data = jump,target = "jump")
-classif.task = createLagDiffFeatures(classif.task, lag = 1L:15L, 
+# Make the classif task
+classif.task = makeClassifTask(data = jump.train,target = "jump")
+classif.task.lag = createLagDiffFeatures(classif.task, lag = 1L:15L, 
                                      na.pad = FALSE)
 
 classif.learn = makeLearner("classif.boosting")
-classif.train = train(classif.learn,classif.task)
-forecast(classif.train, h = 10)
+classif.train = train(classif.learn,classif.task.lag)
+classif.fore = forecast(classif.train, h = 10, newdata = jump.test)
+performance(classif.fore)
 ```
+
+So our model does pretty bad, but that is because it was not tuned. Given the structure in mlr, parallel computing, and time, it would be possible to use this type of model to make forecast classifiers.
 
 ## Lambert W Transforms
 
@@ -284,6 +326,7 @@ stack.forecast.tune
 stack.forecast.mod = train(stack.forecast.tune,fcregr.task)
 stack.forecast.pred = predict(stack.forecast.mod, newdata = dat.test)
 stack.forecast.pred
+
 ```
 
 # Multivariate Forecasting with ML stacking
@@ -341,4 +384,5 @@ multfore.train
 multfore.pred = predict(multfore.train, newdata = EuStockMarkets.test)
 multfore.pred
 performance(multfore.pred, mase, task = multfore.task)
+
 ```
