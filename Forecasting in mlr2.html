@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" class="gr__"><head>
+<html xmlns="http://www.w3.org/1999/xhtml"><head>
 
 <meta charset="utf-8">
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
@@ -486,9 +486,35 @@ wonderful graphic posted below comes from the <code>caret</code> package’s web
 <p>Using the resampling strategy we can do a windowing cross-validation 
 with our previous GARCH model to evaluate the general performance of the
  created GARCH model.</p>
-<pre class="resamplegarch"><code>garch.resample = resample(learner = garch.mod, task = fcregr.task,
-                          resampling = resamp.desc, measures = mase)
-garch.resample</code></pre>
+<pre class="r"><code class="r"><span class="identifier">garch.resample</span> <span class="operator">=</span> <span class="identifier">resample</span><span class="paren">(</span><span class="identifier">learner</span> <span class="operator">=</span> <span class="identifier">garch.mod</span>, <span class="identifier">task</span> <span class="operator">=</span> <span class="identifier">fcregr.task</span>,
+                          <span class="identifier">resampling</span> <span class="operator">=</span> <span class="identifier">resamp.desc</span>, <span class="identifier">measures</span> <span class="operator">=</span> <span class="identifier">mase</span><span class="paren">)</span></code></pre>
+<pre><code>## [Resample] growing iter 1:</code></pre>
+<pre><code>## mase.test.mean=1.54</code></pre>
+<pre><code>## [Resample] growing iter 2:</code></pre>
+<pre><code>## mase.test.mean=1.64</code></pre>
+<pre><code>## [Resample] growing iter 3:</code></pre>
+<pre><code>## mase.test.mean=1.97</code></pre>
+<pre><code>## [Resample] growing iter 4:</code></pre>
+<pre><code>## mase.test.mean=2.63</code></pre>
+<pre><code>## [Resample] growing iter 5:</code></pre>
+<pre><code>## mase.test.mean=2.26</code></pre>
+<pre><code>## [Resample] growing iter 6:</code></pre>
+<pre><code>## mase.test.mean=1.86</code></pre>
+<pre><code>## [Resample] growing iter 7:</code></pre>
+<pre><code>## mase.test.mean=2.03</code></pre>
+<pre><code>## [Resample] growing iter 8:</code></pre>
+<pre><code>## mase.test.mean= 1.6</code></pre>
+<pre><code>## [Resample] growing iter 9:</code></pre>
+<pre><code>## mase.test.mean=1.57</code></pre>
+<pre><code>## [Resample] growing iter 10:</code></pre>
+<pre><code>## mase.test.mean=1.21</code></pre>
+<pre><code>## [Resample] Aggr. Result: mase.test.mean=1.83</code></pre>
+<pre class="r"><code class="r"><span class="identifier">garch.resample</span></code></pre>
+<pre><code>## Resample Result
+## Task: test
+## Learner: fcregr.garch
+## Aggr perf: mase.test.mean=1.83
+## Runtime: 2.16807</code></pre>
 </div>
 <div id="tuning" class="section level2">
 <h2>Tuning</h2>
@@ -513,6 +539,9 @@ model in parallel using <code>parallelMap</code>.</p>
                  <span class="identifier">control</span> <span class="operator">=</span> <span class="identifier">ctrl</span>, <span class="identifier">measures</span> <span class="operator">=</span> <span class="identifier">mase</span><span class="paren">)</span>
 <span class="identifier">parallelStop</span><span class="paren">(</span><span class="paren">)</span>
 <span class="identifier">res</span></code></pre>
+<pre><code>## Tune result:
+## Op. pars: model=fGARCH; submodel=GARCH; garchOrder=1,2
+## mase.test.mean=1.83</code></pre>
 <p>Once we have tuned the model we get back the hyperparameters of the best model through <code>setHyperPars()</code> and then train the model like any other.</p>
 <pre class="r"><code class="r"><span class="identifier">garch.hyp</span>  <span class="operator">=</span> <span class="identifier">setHyperPars</span><span class="paren">(</span><span class="identifier">makeLearner</span><span class="paren">(</span><span class="string">"fcregr.garch"</span>, <span class="identifier">n.ahead</span> <span class="operator">=</span> <span class="number">10L</span><span class="paren">)</span>,
                           <span class="identifier">par.vals</span> <span class="operator">=</span> <span class="identifier">res</span><span class="operator">$</span><span class="identifier">x</span><span class="paren">)</span>

@@ -117,6 +117,7 @@ resamp.desc = makeResampleDesc("GrowingCV", horizon = 10L,
                                initial.window = .90,
                                size = nrow(getTaskData(fcregr.task)), skip = 0)
 resamp.desc
+
 ```
 
 Note that we should not specify stratification, as it does not really make sense in the context of time series to stratify our data (unless a future implementation can somehow use this for panel data). The wonderful graphic posted below comes from the `caret` package's website and gives an intuitive idea of the sliding windows for both the growing and fixed options.
@@ -125,7 +126,7 @@ Note that we should not specify stratification, as it does not really make sense
 
 Using the resampling strategy we can do a windowing cross-validation with our previous GARCH model to evaluate the general performance of the created GARCH model.
 
-```{resampleGarch, cache = TRUE}
+```{r resampleGarch, cache = TRUE}
 garch.resample = resample(learner = garch.mod, task = fcregr.task,
                           resampling = resamp.desc, measures = mase)
 garch.resample
@@ -161,6 +162,7 @@ save(res, file = "./garch_tune.RData")
 
 ```{r garchTuneReal, eval =TRUE, echo = FALSE}
 load("./garch_tune.RData")
+res
 ```
 
 
