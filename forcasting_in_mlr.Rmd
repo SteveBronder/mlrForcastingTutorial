@@ -86,7 +86,6 @@ These all operate the same as the other models in mlr, with a very important par
 We create a GARCH model from the package `rugarch` using `makeLearner()` by calling the learner class `fcregr.garch`. An important parameter is the `n.ahead` parameter, which is used to specify that we are forecasting 10 periods into the future. We can view all of the possible parameters that can be tuned with `getLearnerParamSet("fcregr.garch")`
 
 ```{r makeArima, cache = TRUE}
-getLearnerParamSet("fcregr.garch")
 garch.mod = makeLearner("fcregr.garch",
                         model = "sGARCH", garchOrder = c(2,1),
                         n.ahead = 10L, include.mean = FALSE)
@@ -98,7 +97,7 @@ Once we set up our task and model `train()`, `predict()`, and `performance()` ca
 ```{r garchMod, cache = TRUE}
 garch.train = train(garch.mod, fcregr.task)
 garch.pred = predict(garch.train, newdata = dat.test)
-performance(garch.pred, measure = mase, task = fcregr.task)
+performance(garch.pred, measure = mase, task = fcregr.task, model = garch.train)
 ```
 
 This standard evaluation method is user friendly and in addition, we can now use `mlr`'s built in resampling and tuning methods to tune a garch model for the data.
@@ -114,8 +113,7 @@ mlr now has two new cross validation resampling strategies, `GrowingCV` and `Fix
 
 ```{r resampleDescSimp, cache = TRUE}
 resamp.desc = makeResampleDesc("GrowingCV", horizon = 10L,
-                               initial.window = .90,
-                               size = nrow(getTaskData(fcregr.task)), skip = 0)
+                               initial.window = .90)
 resamp.desc
 
 ```
@@ -143,11 +141,11 @@ par_set = makeParamSet(
                     requires = quote(model == "fGARCH")),
   makeIntegerVectorParam(id = "garchOrder", len = 2L, lower = 1, upper = 3))
 
-#Specify tune by grid estimation
+#Specify tune by Irace
 ctrl = makeTuneControlIrace(maxExperiments = 180L)
 
 library(parallelMap)
-parallelStartSocket(3)
+parallelStartSocket(6)
 configureMlr(on.learner.error = "warn")
 res = tuneParams(garch.mod, task = fcregr.task,
                  resampling = resamp.desc, par.set = par_set,
@@ -173,7 +171,7 @@ garch.hyp  = setHyperPars(makeLearner("fcregr.garch", n.ahead = 10L),
                           par.vals = res$x)
 garch.best = train(garch.hyp, fcregr.task)
 garch.pred = predict(garch.best, newdata = dat.test)
-performance(garch.pred, measures = mase, task = fcregr.task)
+performance(garch.pred, measures = mase, task = fcregr.task, model = garch.train)
 
 ```
 
@@ -206,10 +204,13 @@ predict(updateArmMod, task = fcregr.task)
 The function `createLagDiffFeatures()` allows users to create arbitrary lags and differences that allow for the creation of $AR(p,d)$ style machine learning models to be used with forecasting. This method requires passing a data frame with the row names being POSIXct compatable.
 
 ```{r createlagdiff, cache = TRUE}
-dat.train.reg = as.data.frame(dat.train, row.names = index(dat.train))
+library(xts)
+library(lubridate)
+date.col = as.POSIXct(index(dat.train))
+dat.train.reg = as.data.frame(dat.train)
 regr.task = makeRegrTask(data = dat.train.reg, target = "arma_test")
 regr.task.lag = createLagDiffFeatures(regr.task,lag = 2L:4L, difference = 1L, 
-                                          seasonal.lag = 1L:2L, frequency = 5)
+                                          seasonal.lag = 1L:2L, frequency = 5, date.col = date.col)
 regr.task.lag
 
 ```
@@ -220,15 +221,15 @@ As an example, we will build and train a gradient boosting machine using lagged 
 
 ```{r gdmLags, cache = TRUE}
 regrGbm <- makeLearner("regr.gbm", par.vals = list(n.trees = 100))
-gbmMod = train(regrGbm, regr.task.lag)
+gbm.mod = train(regrGbm, regr.task.lag)
 
 ```
 
 To forecast with a regression model whose task is manipulated by `createLagDiffFeatures()` use the function `forecast()`.
 
 ```{r forecastgbm, cache = TRUE}
-gbm.fore = forecast(gbmMod, h = 10, newdata = dat.test)
-performance(gbm.fore, measures = mase, task = regr.task.lag)
+gbm.fore = forecast(gbm.mod, h = 10, newdata = dat.test)
+performance(gbm.fore, measures = mase, task = regr.task.lag, model = gbm.mod)
 ```
 
 
@@ -252,7 +253,7 @@ jump.test  = jump[489:498,,drop = FALSE]
 # Make the classif task
 classif.task = makeClassifTask(data = jump.train,target = "jump")
 classif.task.lag = createLagDiffFeatures(classif.task, lag = 1L:15L, 
-                                     na.pad = FALSE)
+                                         date.col = times[1:488])
 
 classif.learn = makeLearner("classif.boosting")
 classif.train = train(classif.learn,classif.task.lag)
@@ -261,18 +262,6 @@ performance(classif.fore)
 ```
 
 So our model does pretty bad, but that is because it was not tuned. Given the structure in mlr, parallel computing, and time, it would be possible to use this type of model to make forecast classifiers.
-
-## Lambert W Transforms
-
-A new preprocessing wrapper `makePreprocWrapperLambert()` has been added. This function uses the `LambertW` package’s `Gaussianize()` function to help remove skewness and kurtosis from the data.
-
-```{r lambertclassif, cache = TRUE}
-lrn = makePreprocWrapperLambert("classif.lda", type = "h")
-print(lrn)
-train(lrn, iris.task)
-```
-
-The largest benefit of this preprocessing scheme is that it, as the function says, "Gaussianizes" the data in a similar manner to Box-Cox transforms. Many machine learning and forecasting models lean on the assumption that our data is normally distributed and this preprocessing feature allows us to coalesce the data to fit that assumption.
 
 ## Ensembles of Forecasts
 
@@ -296,9 +285,7 @@ fcregr.task = makeForecastRegrTask(id = "test", data = dat.train, target = "arma
                                      
 resamp.sub = makeResampleDesc("GrowingCV",
                           horizon = 10L,
-                          initial.window = .90,
-                          size = nrow(getTaskData(fcregr.task)),
-                          skip = .01
+                          initial.window = .90
                           )
                           
 resamp.super = makeResampleDesc("CV", iters = 5)
@@ -331,60 +318,4 @@ stack.forecast.pred
 
 ```
 
-# Multivariate Forecasting with ML stacking
-
-One difficulty in the integration of machine learning and forecasting is that most machine learning models rely on a large amount of exogenous data to derive good answers. As stated before, since we can't forecast these exogenous variables it becomes difficult to fully use the power of machine learning models. One workaround to this is to use mlr's ensembling method to build a multivariate forecaster, targeting a specific variable, and then training a machine learning model on the forecasts of all variables. It works as the following
-
-1. Make a multivariate task, targeting the chosen variable
-2. Create a stacked learner, whose base learner is a `mfcregr.BigVAR` model
-3. Create a super learner, which will be trained on the 'stacked' learner
-4. Tune and train the stacked learner
-5. Tune and train the super learner on the forecasts produced by the stacked learner
-
-And now your final model you use for prediction will first forecast your extra variables and then use those forecasts to forecast the final values for the target variable.
-
-```{r multivarStack, cache = TRUE}
-EuStockMarkets.train = EuStockMarkets[1:1855,]
-EuStockMarkets.test = EuStockMarkets[1856:1860,]
-multfore.task = makeMultiForecastRegrTask(id = "bigvar", data = EuStockMarkets.train, target = "FTSE")
-
-resamp.sub = makeResampleDesc("GrowingCV",
-                              horizon = 5L,
-                              initial.window = .97,
-                              size = nrow(getTaskData(multfore.task)),
-                              skip = .01
-)
-
-resamp.super = makeResampleDesc("CV", iters = 3)
-
-base = c("mfcregr.BigVAR")
-lrns = lapply(base, makeLearner)
-lrns = lapply(lrns, setPredictType, "response")
-lrns[[1]]$par.vals$verbose = FALSE
-stack.forecast = makeStackedLearner(base.learners = lrns,
-                                    predict.type = "response",
-                                    super.learner = makeLearner("regr.earth", penalty = 2),
-                                    method = "growing.cv",
-                                    resampling = resamp.sub)
-
-ps = makeParamSet(
-  makeDiscreteParam("mfcregr.BigVAR.p", values = 5),
-  makeDiscreteParam("mfcregr.BigVAR.struct", values = "Basic"),
-  makeNumericVectorParam("mfcregr.BigVAR.gran", len = 2L, lower = 25, upper = 26),
-  makeDiscreteParam("mfcregr.BigVAR.h", values = 5),
-  makeDiscreteParam("mfcregr.BigVAR.n.ahead", values = 5)
-)
-
-## tuning
-multfore.tune = tuneParams(stack.forecast, multfore.task, resampling = resamp.sub,
-                   par.set = ps, control = makeTuneControlGrid(),
-                   measures = multivar.mase, show.info = FALSE)
-multfore.tune
-stack.forecast.f  = setHyperPars2(stack.forecast,multfore.tune$x)
-multfore.train = train(stack.forecast.f,multfore.task)
-multfore.train
-multfore.pred = predict(multfore.train, newdata = EuStockMarkets.test)
-multfore.pred
-performance(multfore.pred, mase, task = multfore.task)
-
-```
+Please note that this an experimental branch of mlr. Please direct any issues to mlr's issue tracker on github
